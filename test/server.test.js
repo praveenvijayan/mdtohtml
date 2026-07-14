@@ -224,35 +224,17 @@ test('a fenced code block with an unknown or missing language renders as escaped
   });
 });
 
-test('a highlight theme stylesheet is served and applies to code blocks in the preview', async () => {
-  await withApp(async (base) => {
-    const theme = await fetch(`${base}/vendor/hljs/github.css`);
-    assert.equal(theme.status, 200);
-    assert.match(theme.headers.get('content-type'), /text\/css/);
-    const css = await theme.text();
-    // The theme rules target the hljs classes the highlighter emits.
-    assert.match(css, /\.hljs/);
-
-    const page = await fetch(`${base}/`);
-    const html = await page.text();
-    // The app shell links the theme stylesheet so highlighting is visible.
-    assert.match(html, /<link rel="stylesheet" href="\/vendor\/hljs\/github\.css"/);
-  });
-});
-
-test('the preview applies distinct styling to headings, paragraphs, lists, blockquotes, tables, and inline code', async () => {
+test('issue 13 preview applies the e-ink skin to h1 rules, dashed separators, blockquotes, code blocks, and table headers', async () => {
   await withApp(async (base) => {
     const res = await fetch(`${base}/style.css`);
     assert.equal(res.status, 200);
     assert.match(res.headers.get('content-type'), /text\/css/);
     const css = await res.text();
-    // Each element type gets its own rule under the preview's markdown-body scope.
-    assert.match(css, /\.markdown-body h1[\s\S]*?\{[^}]*font-size/);
-    assert.match(css, /\.markdown-body p[\s,][\s\S]*?\{[^}]*margin/);
-    assert.match(css, /\.markdown-body (ul|ol)[\s\S]*?\{[^}]*padding-left/);
-    assert.match(css, /\.markdown-body blockquote\s*\{[^}]*border-left/);
-    assert.match(css, /\.markdown-body table\s*\{[^}]*border-collapse/);
-    assert.match(css, /\.markdown-body code\s*\{[^}]*background/);
+    assert.match(css, /\.markdown-body h1\s*\{[\s\S]*border-bottom:\s*3px solid/);
+    assert.match(css, /\.markdown-body hr\s*\{[\s\S]*border-top:\s*3px dashed/);
+    assert.match(css, /\.markdown-body blockquote\s*\{[\s\S]*border-left:\s*4px solid/);
+    assert.match(css, /\.markdown-body pre\s*\{[\s\S]*background:\s*var\(--ink\)/);
+    assert.match(css, /\.markdown-body th\s*\{[\s\S]*text-transform:\s*uppercase/);
   });
 });
 
@@ -261,35 +243,65 @@ test('the content column is width-constrained and readable on a desktop viewport
     const res = await fetch(`${base}/style.css`);
     const css = await res.text();
     const rule = css.match(/\.markdown-body\s*\{([^}]*)\}/)[1];
-    assert.match(rule, /max-width:\s*780px/, 'content column caps its width for readable line length');
+    assert.match(rule, /width:\s*min\(100%,\s*46rem\)/, 'content column caps its width for readable line length');
     assert.match(rule, /margin:\s*0 auto/, 'content column centers within the wider preview pane');
   });
 });
 
-test('on a narrow viewport (<780px) the editor and preview stack without horizontal overflow', async () => {
+test('issue 13 assigns display, monospace, and serif stacks without a runtime CDN dependency', async () => {
+  await withApp(async (base) => {
+    const page = await fetch(`${base}/`);
+    const html = await page.text();
+    const styles = [...html.matchAll(/<link rel="stylesheet" href="([^"]+)"/g)].map((m) => m[1]);
+    const css = await (await fetch(`${base}/style.css`)).text();
+
+    assert.ok(styles.length > 0, 'the app shell links at least one stylesheet');
+    assert.match(css, /--font-display:[^;]+var\(--font-mono\)/);
+    assert.match(css, /--font-mono:[^;]+monospace/);
+    assert.match(css, /--font-serif:[^;]+serif/);
+    for (const href of styles) {
+      assert.doesNotMatch(href, /^https?:\/\//, `${href} must not come from a CDN`);
+    }
+  });
+});
+
+test('issue 13 stacks the header, editor, preview, and footer on a narrow viewport without horizontal overflow', async () => {
   await withApp(async (base) => {
     const res = await fetch(`${base}/style.css`);
     const css = await res.text();
     const query = css.match(/@media \(max-width:\s*780px\)\s*\{([\s\S]*)\}\s*$/);
     assert.ok(query, 'a max-width: 780px breakpoint exists');
     const body = query[1];
-    // Below the breakpoint the two-column grid collapses to a single column
-    // so the editor and preview stack instead of overflowing sideways.
     assert.match(body, /\.split\s*\{[^}]*grid-template-columns:\s*1fr;/);
-    // box-sizing: border-box (applied globally) keeps padded panes within
-    // 100% width instead of adding to it and forcing horizontal scroll.
+    assert.match(body, /\.footerbar\s*\{[^}]*grid-template-columns:\s*1fr;/);
     assert.match(css, /\*\s*\{[^}]*box-sizing:\s*border-box;/);
+    assert.match(css, /\.pane\s*\{[^}]*min-width:\s*0;/);
   });
 });
 
-test('all preview styles are self-contained CSS with no external stylesheet CDN', async () => {
+test('issue 13 keeps the UI intact when theme fonts are unavailable by falling back to system monospace and serif families', async () => {
+  await withApp(async (base) => {
+    const css = await (await fetch(`${base}/style.css`)).text();
+
+    assert.match(css, /\.editor-pane textarea\s*\{[\s\S]*font-family:\s*var\(--font-mono\)/);
+    assert.match(css, /\.markdown-body\s*\{[\s\S]*font-family:\s*var\(--font-serif\)/);
+    assert.doesNotMatch(css, /color:\s*transparent/);
+    assert.doesNotMatch(css, /url\(["']?https?:\/\//);
+  });
+});
+
+test('issue 13 keeps all theme styling self-contained in app-served CSS and assets, with no runtime font or stylesheet CDN', async () => {
   await withApp(async (base) => {
     const page = await fetch(`${base}/`);
     const html = await page.text();
     const stylesheetLinks = [...html.matchAll(/<link rel="stylesheet" href="([^"]+)"/g)].map((m) => m[1]);
+    const css = await (await fetch(`${base}/style.css`)).text();
+
     assert.ok(stylesheetLinks.length > 0, 'the app shell links at least one stylesheet');
     for (const href of stylesheetLinks) {
       assert.doesNotMatch(href, /^https?:\/\//, `${href} must be served by this app, not an external CDN`);
     }
+    assert.doesNotMatch(css, /@import\s+url\(["']?https?:\/\//);
+    assert.doesNotMatch(css, /url\(["']?https?:\/\//);
   });
 });

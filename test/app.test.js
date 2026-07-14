@@ -25,14 +25,22 @@ function bootApp(dom, fetchImpl) {
   }
 }
 
-test('split-pane layout shows textarea and preview pane side by side', () => {
+test('issue 13 shell renders a titled header bar, split editor/preview, and footer bar in the app frame', () => {
   const dom = buildDOM();
   const doc = dom.window.document;
+  const shell = doc.querySelector('.app-shell');
+  const header = doc.querySelector('.topbar');
   const input = doc.getElementById('input');
   const output = doc.getElementById('output');
+  const footer = doc.querySelector('.footerbar');
+
+  assert.ok(shell, 'the app frame must exist');
+  assert.ok(header, 'the header bar must exist');
+  assert.match(header.textContent, /Markdown E-Ink Console/);
   assert.ok(input, '#input textarea must exist');
   assert.equal(input.tagName, 'TEXTAREA');
   assert.ok(output, '#output preview pane must exist');
+  assert.ok(footer, 'the footer bar must exist');
   const panes = doc.querySelectorAll('.split .pane');
   assert.ok(panes.length >= 2, 'must have at least two side-by-side panes');
 });
@@ -74,15 +82,21 @@ test('a failed render request shows a visible status indicator not a blank or br
   const fetchMock = async () => {
     throw new Error('network failure');
   };
-  bootApp(dom, fetchMock);
+  const previousError = console.error;
+  console.error = () => {};
+  try {
+    bootApp(dom, fetchMock);
 
-  const status = doc.getElementById('status');
-  const output = doc.getElementById('output');
+    const status = doc.getElementById('status');
+    const output = doc.getElementById('output');
 
-  await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 200));
 
-  assert.equal(status.textContent, 'error', 'status must show error state');
-  assert.equal(output.innerHTML, '', 'preview must not show broken HTML');
+    assert.equal(status.textContent, 'error', 'status must show error state');
+    assert.equal(output.innerHTML, '', 'preview must not show broken HTML');
+  } finally {
+    console.error = previousError;
+  }
 });
 
 test('overlapping requests apply in order so the preview never shows a stale response', async () => {
