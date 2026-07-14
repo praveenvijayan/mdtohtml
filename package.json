@@ -1,0 +1,20 @@
+{
+  "name": "mdtohtml",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Paste Markdown, see a beautiful web page live.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "highlight.js": "^11.9.0",
+    "markdown-it": "^14.1.0"
+  }
+}

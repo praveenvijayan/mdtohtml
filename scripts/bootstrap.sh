@@ -1,0 +1,401 @@
+#!/usr/bin/env bash
+# bootstrap.sh — install Ratchet into a host project from a pinned release.
+# Downloads a pinned Ratchet ref, reads ratchet-manifest.json, and installs only
+# the `framework` files the selected profile(s) need — safely, visibly, and
+# non-destructively. It NEVER creates GitHub labels/secrets/issues/branch
+# protection and never copies your `.env` or local settings (those are not in
+# the manifest, so they are never selected).
+#
+# Usage:
+#   scripts/bootstrap.sh --version <tag> [--profile core,watcher,...] [--dry-run] [--force]
+# Env:
+#   RATCHET_REMOTE=<git url>   # override upstream (default below)
+set -euo pipefail
+
+REMOTE_URL="${RATCHET_REMOTE:-https://github.com/praveenvijayan/Ratchet.git}"
+# Default profiles beyond the always-installed `core`: `herd` (the fleet
+# supervisor) so a plain `bash bootstrap.sh --version <tag>` install can run the
+# herd out of the box. Pass --profile to trim or extend (e.g. --profile core for
+# a core-only install with no supervisor, --profile herd,watcher to add the
+# local real-time watcher too). `core` is always included; listing it here is
+# redundant but harmless. A default (no --profile) request tolerates a profile
+# the chosen release's manifest does not declare (an older tag predating `herd`
+# simply installs core-only, no crash); an EXPLICIT --profile that names an
+# undeclared profile still errors, so typos never install the wrong set.
+REF=""; PROFILES="herd"; EXPLICIT=0; DRY=0; FORCE=0
+while [ $# -gt 0 ]; do case "$1" in
+  --version) REF="${2:-}"; shift 2;;
+  --profile) PROFILES="${2:-}"; EXPLICIT=1; shift 2;;
+  --dry-run) DRY=1; shift;;
+  --force)   FORCE=1; shift;;
+  -h|--help) sed -n '2,14p' "$0"; exit 0;;
+  *) echo "bootstrap: unknown argument: $1" >&2; exit 2;;
+esac; done
+
+# "core" is always installed; de-dupe it for display so `--profile core`
+# reads "core", not "core,core" (the recorded manifest de-dupes separately).
+PROF_DISPLAY="core"
+for p in ${PROFILES//,/ }; do [ "$p" = "core" ] || PROF_DISPLAY="$PROF_DISPLAY,$p"; done
+
+die(){ echo "bootstrap: $*" >&2; exit 1; }
+
+# Portable content hash (file or directory) so the uninstaller can later tell
+# whether a host has locally modified an installed framework file.
+SHACMD=(sha256sum); command -v sha256sum >/dev/null 2>&1 || SHACMD=(shasum -a 256)
+hash_path() {
+  local p="$1"
+  if [ -d "$p" ]; then
+    ( cd "$p" && find . -type f -print0 | sort -z | xargs -0 "${SHACMD[@]}" ) | "${SHACMD[@]}" | awk '{print $1}'
+  else
+    "${SHACMD[@]}" "$p" | awk '{print $1}'
+  fi
+}
+
+# AC: must be inside a git repo — checked BEFORE downloading anything.
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+  || die "not a git repository — run bootstrap from inside your project's git repo. Nothing was downloaded."
+
+# AC: the version must be explicit so installs are reproducible.
+[ -n "$REF" ] || die "no --version given. Pass --version <tag> for a reproducible install, or --version main to track latest (not reproducible)."
+[ "$REF" = "main" ] && echo "bootstrap: WARNING — --version main is not reproducible; pin a release tag for a repeatable install." >&2
+
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+SRC="$TMP/src"
+
+# AC: download into a temp dir first; the host is untouched until every check
+# passes, so a failed download can never leave a partial install.
+echo "bootstrap: fetching $REF from $REMOTE_URL ..."
+# git's own 404/"remote branch not found" chatter is suppressed so the user
+# never sees a raw curl/git error; die emits a clear, actionable message that
+# names the ref and points at the releases page and the --version main escape.
+git clone --quiet --depth 1 --branch "$REF" "$REMOTE_URL" "$SRC" 2>/dev/null \
+  || die "could not resolve version ref '$REF' on $REMOTE_URL. Check the tag exists on the releases page (${REMOTE_URL%.git}/releases), or pass --version main to track the latest. Nothing was installed."
+[ -f "$SRC/ratchet-manifest.json" ] || die "downloaded ref '$REF' has no ratchet-manifest.json — cannot select files."
+
+# Framework paths for the selected profile(s) — `core` is always included.
+# A default request (no --profile) tolerates a profile the manifest does not
+# declare (silently skipped, so an older tag without `herd` installs core-only);
+# an explicit --profile that names an undeclared profile errors, so a typo on
+# the command line never installs the wrong set.
+LIST="$(node -e '
+  const fs = require("fs");
+  const [mf, prof, explicit] = process.argv.slice(1);
+  let m;
+  try { m = JSON.parse(fs.readFileSync(mf, "utf8")); } catch (e) { console.error("manifest is not valid JSON: " + e.message); process.exit(3); }
+  const want = new Set(["core"]);
+  for (const p of prof.split(",").map((s) => s.trim()).filter(Boolean)) want.add(p);
+  for (const p of want) if (!m.profiles || !m.profiles[p]) {
+    if (p === "core" || explicit === "1") { console.error("unknown profile: " + p); process.exit(4); }
+    want.delete(p);
+  }
+  const out = (m.files || []).filter((e) => e.class === "framework" && want.has(e.profile)).map((e) => e.path);
+  process.stdout.write(out.join("\n"));
+' "$SRC/ratchet-manifest.json" "$PROFILES" "$EXPLICIT")" || die "manifest is invalid or a requested profile is unknown (profiles: $PROFILES)."
+
+# Whether the herd profile is actually part of this install. Keyed on the
+# resolved profile set (mirroring the LIST selection above), NOT on file
+# presence — scripts/herd.mjs ships in `core`, so a core-only install has the
+# CLI but must create nothing under .ratchet/. "1" only when herd is both
+# requested and declared by this release (an older tag without it stays 0, so a
+# default install on such a tag silently skips seeding rather than crashing).
+HERD_REQ="$(node -e '
+  const fs = require("fs");
+  const [mf, prof] = process.argv.slice(1);
+  const m = JSON.parse(fs.readFileSync(mf, "utf8"));
+  const want = new Set(["core"]);
+  for (const p of prof.split(",").map((s) => s.trim()).filter(Boolean)) want.add(p);
+  process.stdout.write(want.has("herd") && m.profiles && m.profiles.herd ? "1" : "0");
+' "$SRC/ratchet-manifest.json" "$PROFILES")"
+
+# Generated paths — scaffolded once, never overwritten. Excludes .ratchet-version
+# (handled separately) and the skill mirrors (generated by setup.sh).
+GEN_LIST="$(node -e '
+  const fs = require("fs");
+  const mf = process.argv[1];
+  let m;
+  try { m = JSON.parse(fs.readFileSync(mf, "utf8")); } catch (e) { console.error("manifest is not valid JSON: " + e.message); process.exit(3); }
+  const skip = new Set([".ratchet-version", ".claude/skills", "plugin/skills"]);
+  const out = (m.files || []).filter((e) => e.class === "generated" && !skip.has(e.path)).map((e) => e.path);
+  process.stdout.write(out.join("\n"));
+' "$SRC/ratchet-manifest.json")"
+
+# Build the install + conflict lists, validating each path stays inside the target.
+INSTALL=(); CONFLICTS=(); SKIPPED=()
+while IFS= read -r rel; do
+  [ -n "$rel" ] || continue
+  # AC: reject any manifest path that would escape the target directory.
+  case "/$rel/" in */../*) die "refusing path that escapes the target directory: $rel";; esac
+  case "$rel" in /*) die "refusing absolute manifest path: $rel";; esac
+  if [ ! -e "$SRC/$rel" ]; then SKIPPED+=("$rel"); continue; fi
+  INSTALL+=("$rel")
+  [ -e "$rel" ] && CONFLICTS+=("$rel")
+done <<< "$LIST"
+
+# AC: --dry-run reports and writes nothing.
+if [ "$DRY" -eq 1 ]; then
+  echo "bootstrap: DRY RUN (profiles: $PROF_DISPLAY) — nothing will be written."
+  for rel in "${INSTALL[@]:-}"; do [ -n "$rel" ] || continue
+    if [ -e "$rel" ]; then echo "  would conflict: $rel (needs --force)"; else echo "  would create:   $rel"; fi
+  done
+  for rel in "${SKIPPED[@]:-}"; do [ -n "$rel" ] && echo "  would skip:     $rel (absent from release)"; done
+  while IFS= read -r rel; do [ -n "$rel" ] || continue
+    if [ -e "$rel" ]; then echo "  would skip:     $rel (already exists)"; else echo "  would scaffold: $rel"; fi
+  done <<< "$GEN_LIST"
+  if [ "$HERD_REQ" -eq 1 ]; then
+    if [ -e .ratchet/herd.json ]; then echo "  would skip:     .ratchet/herd.json (already exists)";
+    else echo "  would scaffold: .ratchet/herd.json"; fi
+  fi
+  echo "bootstrap: dry run complete — host project unchanged."
+  exit 0
+fi
+
+# AC: an existing host file is never overwritten without --force. List every
+# conflict and exit non-zero, changing nothing.
+if [ "${#CONFLICTS[@]}" -gt 0 ] && [ "$FORCE" -ne 1 ]; then
+  echo "bootstrap: refusing to overwrite existing files (re-run with --force to replace them):" >&2
+  for c in "${CONFLICTS[@]}"; do echo "  conflict: $c" >&2; done
+  die "no files were changed."
+fi
+
+HASHFILE="$TMP/hashes.tsv"; : > "$HASHFILE"
+for rel in "${INSTALL[@]:-}"; do
+  [ -n "$rel" ] || continue
+  mkdir -p "$(dirname "$rel")"
+  rm -rf "$rel"
+  cp -R "$SRC/$rel" "$rel"
+  printf '%s\t%s\n' "$rel" "$(hash_path "$rel")" >> "$HASHFILE"
+  echo "  installed: $rel"
+done
+
+# Scaffold generated files — each is created from a clean template, never from
+# Ratchet's own project content. An existing file is left byte-for-byte unchanged
+# and reported as skipped.
+GEN_SCAFFOLDED=()
+while IFS= read -r rel; do
+  [ -n "$rel" ] || continue
+  case "/$rel/" in */../*) die "refusing path that escapes the target directory: $rel";; esac
+  case "$rel" in /*) die "refusing absolute manifest path: $rel";; esac
+  if [ -e "$rel" ]; then
+    echo "  skipped (already exists): $rel"
+    continue
+  fi
+  case "$rel" in
+    GATES.md)
+      mkdir -p "$(dirname "$rel")"
+      cat > "$rel" <<'SCAFFOLD_GATES'
+<!--
+GATES.md — the project config you hand-author. It holds the verification gates
+the agent runs before opening a PR. /ratchet-init fills this in by detecting
+your stack; edit it freely. Ratchet updates never overwrite this file.
+
+Rules: run in order, fail-fast (stop at the first failure). A gate with no
+command for your project should read `TODO: <gate> command`, not a guess.
+-->
+
+# Gates
+
+Run in order, fail-fast. Replace the commands with your stack's equivalents
+(or let `/ratchet-init` detect them).
+
+<!-- auto-detected by /ratchet-init; verify before first run. -->
+
+| Order | Gate        | Command                           | Pass condition |
+|-------|-------------|-----------------------------------|----------------|
+| 1     | format      | TODO: format command              | —              |
+| 2     | typecheck   | TODO: typecheck command           | —              |
+| 3     | lint        | TODO: lint command                | —              |
+| 4     | test        | TODO: test command                | —              |
+| 5     | build       | TODO: build command               | —              |
+| 6     | audit       | TODO: audit command               | —              |
+| 7     | secret-scan | TODO: secret-scan command         | —              |
+
+## PR size limit (agent PRs)
+
+Enforced server-side by the `pr-gates` workflow (`scripts/pr-size-check.mjs`) on
+every `agent/issue-*` PR — a PR over either threshold fails the check and the
+red message repeats the split-and-requeue protocol from AGENTS.md step 3. Tune
+the numbers here; they default to the manual's ~400 changed lines / ~6 files.
+
+- max_changed_lines: 400
+- max_changed_files: 6
+- exclude_paths: [package-lock.json, pnpm-lock.yaml, yarn.lock, Cargo.lock, poetry.lock, go.sum, ratchet-manifest.json]
+
+`exclude_paths` accepts comma-separated path patterns. The lockfiles above are
+excluded by default even if this line is omitted; add generated artifacts here
+when they should not count toward review-size limits.
+
+Also excluded by default, alongside the lockfiles: the generated skill mirrors
+`.claude/skills/**` and `plugin/skills/**`. Skills have one canonical source
+under `.agents/skills/` (which still counts) and two mirrors regenerated by
+`setup.sh`, so one real skill edit ships three changed files; excluding the
+mirrors keeps the gate counting the single canonical change.
+
+### Exclude-pattern matching rules
+
+A pattern is matched against each changed file's full repo-relative path (the
+whole path must match, not a prefix). These semantics are **not** gitignore's —
+read them before writing a pattern:
+
+- **`*` matches within a single path segment only — it never crosses a `/`.**
+  So `*.min.js` matches `app.min.js` but **not** `dist/app.min.js`; write
+  `**/*.min.js` (or `dist/**`) to reach nested files. Use `**` to cross
+  directory separators.
+- **A bare filename (no `/` and no `*`) matches that file at any depth.** So
+  `Cargo.lock` matches both `Cargo.lock` and `crates/api/Cargo.lock` — this is
+  why the default lockfile names catch nested lockfiles without a `**/` prefix.
+- **A pattern containing `/` is anchored at the repo root.** So `docs/report.md`
+  matches only the top-level file, and `generated/**` matches everything under a
+  root-level `generated/` directory.
+SCAFFOLD_GATES
+      echo "  scaffolded: $rel"
+      GEN_SCAFFOLDED+=("$rel")
+      ;;
+    memory)
+      mkdir -p "$rel"
+      cat > "$rel/USER.md" <<'SCAFFOLD_USER'
+<!--
+USER.md — human-owned memory. The agent READS this at the start of every issue
+and NEVER edits it. Put stable, settled facts here: team preferences, coding
+conventions, domain glossary, and "always X / never Y" rules. Keep it short and
+current; delete anything no longer true.
+-->
+
+# Project preferences & conventions
+
+## Coding conventions
+- (e.g.) TypeScript strict mode; no `any`. Prefer composition over inheritance.
+- (e.g.) Conventional Commits for all commit messages.
+
+## Review preferences
+- (e.g.) Small PRs only; one issue per PR. Tests required for new behaviour.
+
+## Tech decisions (settled)
+- (e.g.) State management: XState. HTTP: native fetch, no axios.
+
+## Always / never
+- Always: (e.g.) add a failing test before implementing a bug fix.
+- Never: (e.g.) introduce a new dependency without noting why in the PR.
+
+## Glossary
+- (term) — (one-line definition)
+SCAFFOLD_USER
+      cat > "$rel/MEMORY.md" <<'SCAFFOLD_MEMORY'
+<!--
+MEMORY.md — distilled project knowledge. A CACHE, NOT A LOG.
+
+Rules:
+- The agent PROPOSES entries here as part of a PR; a human approves them on merge.
+  Never write to this file silently.
+- An entry earns its place only if it saves a future agent from re-reading
+  history. Raw detail lives in issues/PRs/commits — link to them, don't copy them.
+- Each entry is 1–2 lines and cites its source: (#123) or (PR #456).
+- Keep it small and current. Prune obsolete entries with /ratchet-memory — the
+  full history in closed issues/PRs/git means pruning never loses information.
+- Group by area. If this file outgrows ~300 lines, that's a signal to compact.
+-->
+
+# Project memory
+SCAFFOLD_MEMORY
+      cat > "$rel/ARCHITECTURE.md" <<'SCAFFOLD_ARCH'
+<!--
+ARCHITECTURE.md — a COARSE, machine-generated map of this codebase. The agent
+reads it at the start of every issue to orient and to SCOPE its file reads,
+instead of exploring blind. Generated by /ratchet-init and refreshed by
+/ratchet-map. Agents propose edits here in the same PR when their work changes
+the structure (a new module, a moved directory) — reviewed like code.
+
+RULES (these keep the map honest; a stale map is worse than none):
+- COARSE ONLY: directories and their responsibilities, major components by role.
+- NEVER record line numbers, function signatures, or dependency versions
+  (those live in the code and the manifest, and rot fast).
+- Repo-relative paths only — never absolute machine paths.
+- Ignore generated/vendor dirs (build/, dist/, target/, node_modules/,
+  .dart_tool/, ios/Pods/, vendor/, __pycache__/, .next/, package caches).
+- PROVISIONAL: when the map disagrees with the code, the code wins — fix the map.
+-->
+
+# Architecture map
+
+_Not yet generated — run /ratchet-init or /ratchet-map to populate._
+SCAFFOLD_ARCH
+      echo "  scaffolded: $rel"
+      GEN_SCAFFOLDED+=("$rel")
+      ;;
+    .env.example)
+      mkdir -p "$(dirname "$rel")"
+      cat > "$rel" <<'SCAFFOLD_ENV'
+# Copy to .env (which is gitignored) and fill in. NEVER commit a real token.
+#
+# Fine-grained Personal Access Token, scoped to THIS repo, with:
+#   Issues: Read and write   (required — drives the issue lifecycle)
+#   Contents: Read and write  (branches/commits)
+#   Pull requests: Read and write
+#
+# Used by local runs of scripts/plan-sync.mjs (e.g. via /plan-sync).
+# For GitHub Actions, the SAME token must also be set as a repo secret named
+# FACTORY_PAT  ->  gh secret set FACTORY_PAT
+GITHUB_PAT=
+SCAFFOLD_ENV
+      echo "  scaffolded: $rel"
+      GEN_SCAFFOLDED+=("$rel")
+      ;;
+    mascots)
+      mkdir -p "$rel"
+      cp -R "$SRC/$rel/." "$rel/"
+      echo "  scaffolded: $rel"
+      GEN_SCAFFOLDED+=("$rel")
+      ;;
+    *)
+      echo "  skipped (generated by another tool): $rel"
+      ;;
+  esac
+done <<< "$GEN_LIST"
+
+# Seed the herd runtime config so a herd-profile install starts out of the box.
+# `.ratchet/herd.json` is user-owned runtime state (like .env): created once from
+# herd.mjs's own `init` defaults, then never overwritten — we skip when it
+# already exists, and init itself refuses to clobber. A core-only install has
+# HERD_REQ=0 and so writes nothing under .ratchet/. It stays out of the install
+# manifest on purpose: ratchet-update and ratchet-uninstall only touch recorded
+# paths, so this runtime config survives both untouched.
+if [ "$HERD_REQ" -eq 1 ]; then
+  if [ -e .ratchet/herd.json ]; then
+    echo "  skipped (already exists): .ratchet/herd.json"
+  elif node scripts/herd.mjs init >/dev/null 2>&1; then
+    echo "  scaffolded: .ratchet/herd.json"
+  else
+    echo "bootstrap: WARNING — could not seed .ratchet/herd.json; run 'node scripts/herd.mjs init' before starting the herd." >&2
+  fi
+fi
+
+# Record the version and an installation manifest of every path we wrote, plus
+# a content hash per installed framework path — the uninstaller uses it to
+# detect local edits before removing a file.
+VER="$REF"
+if [[ "$REF" =~ ^v?([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then VER="${BASH_REMATCH[1]}"; fi
+printf '%s\n' "$VER" > .ratchet-version
+node -e '
+  const fs = require("fs");
+  const args = process.argv.slice(1);
+  const sep = args.indexOf("--");
+  const [ver, prof, hashFile] = args;
+  const profiles = ["core", ...prof.split(",").map((s) => s.trim()).filter(Boolean)].filter((v, i, a) => a.indexOf(v) === i);
+  const installed = sep === -1 ? args.slice(3) : args.slice(3, sep);
+  const generated = sep === -1 ? [] : args.slice(sep + 1);
+  const hashes = {};
+  for (const line of fs.readFileSync(hashFile, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    const [p, h] = line.split("\t");
+    hashes[p] = h;
+  }
+  fs.writeFileSync(".ratchet-install.json", JSON.stringify({ version: ver, profiles, installed, generated, hashes }, null, 2) + "\n");
+' "$VER" "$PROFILES" "$HASHFILE" "${INSTALL[@]:-}" -- "${GEN_SCAFFOLDED[@]:-}"
+
+echo
+echo "bootstrap: Ratchet $VER installed (profiles: $PROF_DISPLAY). Recorded in .ratchet-install.json."
+echo "Next steps:"
+echo "  1. ./setup.sh       # generate the skill mirrors your agent reads"
+echo "  2. /ratchet-init    # detect your stack and fill in GATES.md"
+if [ "$HERD_REQ" -eq 1 ]; then
+  echo "  3. node scripts/herd.mjs run   # start the herd (config seeded at .ratchet/herd.json)"
+fi

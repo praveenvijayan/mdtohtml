@@ -1,0 +1,9 @@
+# Secrets — never commit
+.env
+
+# Ratchet local state
+.ratchet/
+.ratchet-owner
+
+# OS cruft
+.DS_Store

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Markdown → Web Page</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/vendor/hljs/github.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">◆</span>
+        <h1>Markdown&nbsp;→&nbsp;Web&nbsp;Page</h1>
+      </div>
+      <p class="tagline">Paste Markdown on the left. Watch it become a page on the right.</p>
+    </header>
+
+    <main class="split">
+      <section class="pane editor-pane">
+        <div class="pane-head"><span>Markdown</span><span id="status" class="status">ready</span></div>
+        <textarea
+          id="input"
+          spellcheck="false"
+          autocomplete="off"
+          aria-label="Markdown input"
+        ></textarea>
+      </section>
+
+      <section class="pane preview-pane">
+        <div class="pane-head"><span>Preview</span></div>
+        <article id="output" class="markdown-body"></article>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

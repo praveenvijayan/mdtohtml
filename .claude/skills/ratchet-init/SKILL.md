@@ -1,0 +1,261 @@
+---
+name: ratchet-init
+description: One-time setup for a repo adopting the factory. Creates the state:* and priority:* labels, detects the project's stack and fills GATES.md, scaffolds the memory files and generates a coarse codebase map (memory/ARCHITECTURE.md), and ensures the Personal Access Token the issue-flow automation depends on is configured (informs the user; never handles the token itself). Idempotent — safe to re-run.
+disable-model-invocation: true
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash(ls:*), Bash(gh:*)
+---
+
+# Factory init (one-time per repo)
+
+Jobs: create the state machine's labels, make `AGENTS.md` match this project's
+stack, ensure the PAT the issue flow depends on is in place, and offer to
+protect `main` so the human's merge is the only way onto it.
+
+## Preflight
+
+Run `gh auth status` and `gh repo view --json nameWithOwner`. If `gh` is not
+authenticated or this is not a GitHub repo, STOP and tell the user how to fix it.
+
+## Step 1 — Create labels
+
+`--force` makes this idempotent (creates, or updates colour/description).
+
+```
+gh label create "state:draft"             --color "ededed" --description "Synced but not ready (no acceptance criteria)" --force
+gh label create "state:ready"             --color "0e8a16" --description "Unblocked and pickable by an agent" --force
+gh label create "state:in-progress"       --color "fbca04" --description "Claimed; agent/issue-<N> branch exists" --force
+gh label create "state:in-review"         --color "1d76db" --description "PR open, awaiting human review" --force
+gh label create "state:changes-requested" --color "d93f0b" --description "Human requested changes; agent reworking" --force
+gh label create "state:blocked"           --color "b60205" --description "Has an open blocker; not pickable" --force
+gh label create "priority:high"           --color "5319e7" --description "Pick before medium/low" --force
+gh label create "priority:medium"         --color "8a63d2" --description "Default priority" --force
+gh label create "priority:low"            --color "c5b3f0" --description "Pick last" --force
+```
+
+## Step 2 — Detect the stack and fill GATES.md
+
+**Does code exist?** Look for a manifest (`package.json`, `pyproject.toml`,
+`requirements.txt`, `Cargo.toml`, `go.mod`, `Makefile`, etc.). If none, this is
+greenfield: leave the default `GATES.md`, note that the user should re-run
+`/ratchet-init` once code lands, and skip to Step 3.
+
+If code exists, detect commands **from real evidence only**:
+
+1. **Package manager / build tool** — for Node the lockfile decides:
+   `pnpm-lock.yaml`→pnpm, `yarn.lock`→yarn, `bun.lockb`→bun,
+   `package-lock.json`→npm; else the `packageManager` field; else npm.
+2. **Per gate, find the real command.** Prefer scripts/targets the project
+   already defines (`package.json` scripts, `Makefile` targets, `pyproject.toml`
+   `[tool.*]`). Fall back to a direct tool invocation only when that tool's
+   config file is present.
+
+   | Ecosystem | Evidence | format | typecheck | lint | test | build |
+   |-----------|----------|--------|-----------|------|------|-------|
+   | Node/TS | `package.json` (+lockfile) | `<pm> run format:check` / `prettier --check .` | `<pm> run typecheck` / `tsc --noEmit` | `<pm> run lint` / `eslint .` | `<pm> test` | `<pm> run build` |
+   | Python | `pyproject.toml` / `requirements.txt` | `ruff format --check .` / `black --check .` | `mypy .` / `pyright` | `ruff check .` / `flake8` | `pytest` | `python -m build` |
+   | Rust | `Cargo.toml` | `cargo fmt --check` | `cargo check` | `cargo clippy -- -D warnings` | `cargo test` | `cargo build --release` |
+   | Go | `go.mod` | `gofmt -l .` | `go vet ./...` | `golangci-lint run` | `go test ./...` | `go build ./...` |
+   | Make present | `Makefile` targets | `make format` | — | `make lint` | `make test` | `make build` |
+
+   Commands to **recognise**, not invent. If a gate has no matching
+   script/config, or the script is a stub, write `TODO: <gate> command` instead
+   of guessing.
+3. **Security gates — same evidence-only discipline.** Agent-authored commits
+   need dependency and secret checks at least as much as human ones. Add two
+   more gates, `audit` (dependency vulnerabilities) and `secret-scan`, from the
+   ecosystem you already detected. The ecosystem-standard auditors ship with (or
+   are the canonical companion to) the manifest, so the manifest is the evidence
+   for `audit`; a secret scanner is only emitted when its config is committed.
+
+   | Gate        | Evidence                                   | Command |
+   |-------------|--------------------------------------------|---------|
+   | audit       | Node manifest + lockfile                   | `<pm> audit` |
+   | audit       | Python `pyproject.toml` / `requirements.txt` | `pip-audit` |
+   | audit       | Rust `Cargo.toml`                          | `cargo audit` |
+   | audit       | Go `go.mod`                                | `govulncheck ./...` |
+   | secret-scan | `.gitleaks.toml` / `gitleaks.toml` present | `gitleaks detect --no-banner --redact` |
+
+   No matching ecosystem manifest → write `TODO: audit command`. No committed
+   secret-scanner config → write `TODO: secret-scan command`. Never guess a
+   security command from nothing.
+4. **Edit `GATES.md`** — replace the body rows of the table with the detected
+   commands (the five build gates plus the `audit` and `secret-scan` rows),
+   keeping the columns. Add one comment above the table:
+   `<!-- auto-detected by /ratchet-init on <date>; verify before first run -->`.
+5. **Never run a gate.** Detection only — this includes the security gates: an
+   `audit` or `secret-scan` looks read-only but still must not be executed.
+
+## Step 3 — Scaffold memory and map the codebase
+
+Ensure the durable-memory files exist (create from the kit templates if absent;
+never overwrite an existing one):
+- `memory/USER.md` — human-owned preferences/conventions.
+- `memory/MEMORY.md` — agent-proposed, human-approved distilled knowledge.
+- `memory/ARCHITECTURE.md` — the coarse codebase map (generated below).
+
+If you created `USER.md` fresh, tell the user to seed it with team conventions.
+Do not populate `MEMORY.md` — it fills through PRs over time.
+
+**Generate `memory/ARCHITECTURE.md` from the actual codebase** (skip if the repo
+is empty/greenfield — leave the placeholder and note to re-run later). This is
+language-agnostic: do not assume any stack.
+
+1. Detect the project type from manifests (`package.json`, `pyproject.toml`,
+   `Cargo.toml`, `go.mod`, `pubspec.yaml`, `pom.xml`, `Gemfile`, etc.) and the
+   conventional source root(s) (`src/`, `lib/`, `app/`, `cmd/`, …).
+2. Walk the top-level and source directories and describe each one's apparent
+   **purpose** and the **major components/modules by role**. **Ignore generated
+   and vendor directories entirely** — `build/`, `dist/`, `target/`, `out/`,
+   `bin/`, `obj/`, `node_modules/`, `.dart_tool/`, `ios/Pods/`, `vendor/`,
+   `__pycache__/`, `.next/`, and any package cache. Never read into them.
+3. Note visible **conventions** (layering, naming, where new code of each kind
+   goes) and, cautiously, what is **not yet present** (e.g. no tests directory).
+4. Write **coarse only**: directories and responsibilities. **Never record line
+   numbers, function signatures, dependency versions, or absolute machine
+   paths** — repo-relative paths only. Mark it machine-generated and provisional.
+
+If you don't recognise the ecosystem, fall back to describing the top-level
+directories and their apparent purpose. The goal is fast orientation that lets a
+future agent scope its reads — not a complete index.
+
+## Step 4 — Personal Access Token (CRITICAL for the issue flow)
+
+The issue lifecycle relies on workflows reacting to each other's events.
+GitHub's default `GITHUB_TOKEN` **does not trigger another workflow** from events
+it produces. So if an issue is ever closed by automation (auto-merge, a bot, or
+another action) rather than a human click, `unblock-dependents` never fires and
+dependent issues stay stuck — the loop silently stalls. A fine-grained PAT used
+as the workflow token removes this and also drives local `/ratchet-sync` runs.
+
+The workflows already read `${{ secrets.FACTORY_PAT || secrets.GITHUB_TOKEN }}`,
+so they upgrade automatically once the PAT exists.
+
+**What you (the agent) do — setup and verification only:**
+- Ensure `.env` is gitignored: if `.gitignore` lacks a `.env` line, append it.
+  Do the same for `.ratchet/` (local watcher state) and `.ratchet-owner` (the
+  per-worktree claim-owner marker written at claim time — see AGENTS.md step 2).
+- Ensure `.env.example` exists documenting `GITHUB_PAT` (create from the kit's
+  template if missing).
+- Check presence only: `gh secret list` (is `FACTORY_PAT` listed?) and a
+  non-empty `GITHUB_PAT=` line in `.env`. Never read, echo, log, or write the
+  token value.
+
+**If either is missing, STOP and INSTRUCT the user** (do NOT perform these —
+creating a token and setting a secret are credential actions the user owns):
+  1. Create a fine-grained PAT scoped to this repo with **Issues: Read/Write**,
+     **Contents: Read/Write**, **Pull requests: Read/Write**.
+  2. For Actions: `gh secret set FACTORY_PAT` and paste it when prompted.
+  3. For local runs: copy `.env.example` to `.env` and set `GITHUB_PAT=<token>`.
+  4. State clearly: until both are set, automation falls back to the default
+     token and the loop may stall on automated issue closes.
+
+## Step 5 — Offer branch protection for `main` (only with explicit confirmation)
+
+Hard Rule 6 ("never merge, never push to `main`") is prompt obedience until a
+GitHub mechanism enforces it — an agent with push access can violate every rule
+mechanically. This step offers to protect `main` so the human's merge is the
+only way in. It is the **one** place `/ratchet-init` may change repo settings,
+and only after the user explicitly says yes.
+
+1. **Read the current status first — always, and record it.** The Step 6 report
+   must state `main`'s protection status no matter what happens below.
+   ```
+   gh api "repos/{owner}/{repo}/branches/main/protection" 2>/dev/null
+   ```
+   Interpret the outcome:
+   - **`200`** → already protected. Note whether it already requires a PR, the
+     `gates` and `size` checks, applies to administrators, and blocks force
+     pushes.
+   - **`404`** (`Branch not protected`) → unprotected.
+   - **`403`** → your token cannot even read protection; treat as the
+     permission case in step 4 below and still report it.
+
+2. **If it is already protected with all offered settings**, there is nothing
+   to do — say so and go to Step 6 (this keeps the skill idempotent).
+
+3. **Otherwise, offer — describe the exact changes and ask the user to confirm.**
+   Apply **only** on an explicit yes. The protection to offer:
+   - **Require a pull request before merging** — blocks direct pushes to `main`
+     (`required_pull_request_reviews` with `required_approving_review_count: 0`;
+     the human's merge stays the gate, no forced approval ceremony).
+   - **Require the `gates` and `size` status checks** to pass. GitHub reports the
+     `.github/workflows/pr-gates.yml` jobs under the context names **`gates`**
+     and **`size`** (the job ids) — those exact strings are what must be
+     required, not the workflow filename, or the requirements would reference
+     checks that never report and no PR could merge.
+   - **Apply protection to administrators** (`enforce_admins: true`). This is the
+     recommended default for Ratchet because the prescribed agent credentials are
+     normally an owner/admin PAT. If `enforce_admins` is `false`, those
+     owner/admin tokens are exempt from the rule and can bypass the required PR
+     and status checks. Set it to `false` only when the human explicitly wants an
+     admin escape hatch and accepts that trade-off.
+   - **Block force pushes and branch deletion** on `main`.
+   If the user **declines**, change nothing and record in the report that `main`
+   is unprotected by the user's choice. Declining is a valid outcome, not a
+   failure.
+
+4. **Apply (only after an explicit yes):**
+   ```
+   gh api -X PUT "repos/{owner}/{repo}/branches/main/protection" --input - <<'JSON'
+   {
+     "required_status_checks": { "strict": false, "contexts": ["gates", "size"] },
+     "enforce_admins": true,
+     "required_pull_request_reviews": { "required_approving_review_count": 0 },
+     "restrictions": null,
+     "allow_force_pushes": false,
+     "allow_deletions": false
+   }
+   JSON
+   ```
+   `enforce_admins: true` is the recommended default: it applies the PR and
+   check requirements to owner/admin PATs too, so agents using those credentials
+   are bound by protection. If the human explicitly asks for
+   `enforce_admins: false`, state that owner/admin PATs are exempt and can
+   bypass the rule; treat that as a conscious hotfix escape hatch, not the safe
+   default.
+   - **On success**, re-read protection and confirm the offered settings took
+     effect; report them.
+   - **On a `403`/permission error, do not fail the whole init and do not claim
+     success.** Setting protection needs **Administration: Read/Write** on the
+     repo, which the default `GITHUB_TOKEN` and a PAT without that scope lack.
+     Report *exactly* that the token is missing the administration permission,
+     then give the manual fallback:
+     1. In the repo, **Settings → Branches → Add rule** for `main`: require a
+        pull request, require the **`gates`** and **`size`** status checks,
+        apply the rule to administrators, and block force pushes; **or**
+     2. re-run `/ratchet-init` with a PAT that has **Administration: Read/Write**
+        on this repo.
+   - On any other error, report the HTTP status and message rather than
+     swallowing it — a silent settings failure is exactly what this step exists
+     to prevent.
+
+## Step 6 — Report and hand off
+
+- Confirm the nine labels (`gh label list`).
+- Confirm `memory/USER.md`, `memory/MEMORY.md`, and `memory/ARCHITECTURE.md` exist; if just created, remind
+  the user to seed `USER.md` with team conventions.
+- Show the filled `GATES.md` table; call out every `TODO` row.
+- State PAT status: `FACTORY_PAT` secret present? `.env` `GITHUB_PAT` present?
+  If either is missing, repeat the Step 3 instruction.
+- **Always state `main`'s branch-protection status** (from Step 5): protected
+  with require-PR + `gates`/`size` checks + admin enforcement + no-force-push,
+  partially protected (name the gaps), unprotected by the user's choice, or not
+  set because the token lacked the administration permission (with the manual
+  steps). Never omit this line.
+- Remaining human-owned steps: verify the detected gates; confirm the workflows
+  are under `.github/workflows/`.
+
+## Hard rules
+
+- Token safety: never create the PAT, set the secret value, write a real token
+  into any file, or print/log a token. Inform and verify presence only.
+- Evidence-based gates: never fabricate a command; unknown → `TODO`. This
+  covers the security gates too — no ecosystem manifest → `TODO: audit`; no
+  committed scanner config → `TODO: secret-scan`.
+- Detection never executes the project's build/test commands, nor the security
+  gates (`audit`, `secret-scan`) — a scan looks read-only but is still not run.
+- The **only** repo-setting this skill may change is `main`'s branch protection,
+  and only after the user explicitly confirms it in Step 5. Everything else is
+  file edits, labels, and read-only checks — never change other repo settings or
+  visibility, and never touch branch protection without an explicit yes.
+- Idempotent: safe to re-run any time the stack, labels, or token drift.

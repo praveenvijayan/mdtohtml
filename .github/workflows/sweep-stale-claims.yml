@@ -1,0 +1,48 @@
+name: sweep-stale-claims
+
+# Poor-man's lease expiry across every non-terminal state. Every 30 min, find
+# issues that a vanished agent could strand forever and return them to the queue:
+#   - state:in-progress      — a claim with no proof of life for STALE_HOURS.
+#   - state:in-review        — no open PR from its agent/issue-<N> branch (the PR
+#                              was closed or abandoned without merging).
+#   - state:changes-requested — no activity for STALE_HOURS after a human asked
+#                              for changes.
+# For the time-based states, freshness is the most recent proof of life: the
+# branch's last commit once work exists, a heartbeat comment an agent posts
+# during a long build/rework (renewing the lease without pushing red code), or
+# the claim event while the branch still sits at main HEAD -- otherwise a quiet
+# main would make every fresh, still-building claim look instantly stale.
+# The whole sweep — signal-gathering, the per-issue decision (built on the shared
+# freshness rule in scripts/sweep-lease.mjs), and the requeue — lives in
+# scripts/sweep-stale-claims.mjs so it can be unit-tested off the network and can
+# never diverge from what runs here. This workflow is only its trigger and env.
+# A crashed agent costs at most STALE_HOURS of delay, no human action.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+  pull-requests: read   # detect an open PR for an in-review claim branch
+  contents: write       # delete orphaned (zero-commit) claim refs
+
+env:
+  STALE_HOURS: "2"
+  REWORK_GRACE_HOURS: "2"
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+      - run: node scripts/sweep-stale-claims.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.FACTORY_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          STALE_HOURS: ${{ env.STALE_HOURS }}
+          REWORK_GRACE_HOURS: ${{ env.REWORK_GRACE_HOURS }}
