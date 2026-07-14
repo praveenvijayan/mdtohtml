@@ -5,6 +5,7 @@ import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const JSON_BODY_LIMIT = '2mb';
 
 // html:false — raw HTML in the input is escaped, not rendered. Pasted Markdown
 // is untrusted, so this closes the obvious XSS hole. markdown-it still handles
@@ -28,7 +29,7 @@ export const md = new MarkdownIt({
 
 export function createApp() {
   const app = express();
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: JSON_BODY_LIMIT }));
   app.use(express.static(path.join(__dirname, 'public')));
   // highlight.js ships its themes; serve them straight from the package.
   app.use(
@@ -39,6 +40,16 @@ export function createApp() {
   app.post('/api/render', (req, res) => {
     const markdown = typeof req.body?.markdown === 'string' ? req.body.markdown : '';
     res.json({ html: md.render(markdown) });
+  });
+
+  app.use((err, _req, res, next) => {
+    if (err?.type === 'entity.too.large') {
+      return res.status(413).json({
+        error: `Request body exceeds the ${JSON_BODY_LIMIT} JSON limit.`,
+      });
+    }
+
+    return next(err);
   });
 
   return app;
