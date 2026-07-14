@@ -12,16 +12,16 @@ command for your project should read `TODO: <gate> command`, not a guess.
 Run in order, fail-fast. Replace the commands with your stack's equivalents
 (or let `/ratchet-init` detect them).
 
-<!-- auto-detected by /ratchet-init; verify before first run. -->
+<!-- auto-detected by /ratchet-init on 2026-07-14; verify before first run. -->
 
 | Order | Gate        | Command                           | Pass condition |
 |-------|-------------|-----------------------------------|----------------|
 | 1     | format      | TODO: format command              | —              |
 | 2     | typecheck   | TODO: typecheck command           | —              |
 | 3     | lint        | TODO: lint command                | —              |
-| 4     | test        | TODO: test command                | —              |
+| 4     | test        | npm test                          | exit 0          |
 | 5     | build       | TODO: build command               | —              |
-| 6     | audit       | TODO: audit command               | —              |
+| 6     | audit       | npm audit                         | exit 0          |
 | 7     | secret-scan | TODO: secret-scan command         | —              |
 
 ## PR size limit (agent PRs)
