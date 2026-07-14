@@ -18,7 +18,11 @@
 
     <main class="split">
       <section class="pane editor-pane">
-        <div class="pane-head"><span>Markdown</span><span id="status" class="status">ready</span></div>
+        <div class="pane-head">
+          <span class="pane-label">Markdown</span>
+          <span id="char-count" class="stat" aria-label="character count">0 chars</span>
+          <span id="status" class="status">ready</span>
+        </div>
         <textarea
           id="input"
           spellcheck="false"
@@ -32,6 +36,12 @@
         <article id="output" class="markdown-body"></article>
       </section>
     </main>
+
+    <footer class="hud" aria-label="document statistics">
+      <span class="stat"><span id="word-count">0</span> words</span>
+      <span class="stat"><span id="line-count">1</span> lines</span>
+      <span class="stat" id="read-time">1 min read</span>
+    </footer>
 
     <script src="/app.js"></script>
   </body>

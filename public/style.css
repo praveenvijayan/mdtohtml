@@ -94,6 +94,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 10px 16px;
   font-size: 12px;
   font-weight: 600;
@@ -102,6 +103,19 @@ body {
   color: var(--muted);
   background: var(--panel);
   border-bottom: 1px solid var(--border);
+}
+
+.pane-label {
+  margin-right: auto;
+}
+
+.stat {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .status {
@@ -271,6 +285,23 @@ body {
   margin: 2em 0;
 }
 
+/* ---------- hud footer ---------- */
+.hud {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 10px 24px;
+  font-size: 12px;
+  color: var(--muted);
+  background: linear-gradient(180deg, var(--panel), var(--panel-2));
+  border-top: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.hud .stat {
+  white-space: nowrap;
+}
+
 /* ---------- responsive ---------- */
 @media (max-width: 780px) {
   .split {
@@ -281,5 +312,10 @@ body {
   .editor-pane {
     border-right: 0;
     border-bottom: 1px solid var(--border);
+  }
+
+  .hud {
+    flex-wrap: wrap;
+    gap: 12px 18px;
   }
 }
