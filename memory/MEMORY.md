@@ -13,3 +13,5 @@ Rules:
 -->
 
 # Project memory
+
+- highlight.js themes style `.hljs`, but markdown-it only emits `language-<lang>` on the `<code>` element; server.js overrides the fence render rule to join `hljs` onto the class so the theme's block rules apply. (#5)
