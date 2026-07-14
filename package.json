@@ -16,5 +16,8 @@
     "express": "^4.19.2",
     "highlight.js": "^11.9.0",
     "markdown-it": "^14.1.0"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
   }
 }
