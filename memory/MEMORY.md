@@ -15,3 +15,4 @@ Rules:
 # Project memory
 
 - highlight.js themes style `.hljs`, but markdown-it only emits `language-<lang>` on the `<code>` element; server.js overrides the fence render rule to join `hljs` onto the class so the theme's block rules apply. (#5)
+- Document stats (chars in editor header `#char-count`; words/lines/read-time in footer `#word-count`/`#line-count`/`#read-time`) are computed client-side in app.js `computeStats()`, updated synchronously on every `input` event; read time = `max(1, ceil(words / 200))` WPM. (#14)
