@@ -195,6 +195,28 @@ body {
   filter: invert(1);
 }
 
+.font-toggle {
+  padding: 0.2rem 0.55rem;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  cursor: pointer;
+}
+
+.font-toggle:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.font-toggle[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
 .editor-pane textarea {
   flex: 1;
   min-width: 0;
@@ -232,6 +254,10 @@ body {
   font-size: 1.04rem;
   line-height: 1.78;
   overflow-wrap: anywhere;
+}
+
+.markdown-body.mono {
+  font-family: var(--font-mono);
 }
 
 .markdown-body > :first-child {
