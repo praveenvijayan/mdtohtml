@@ -10,6 +10,7 @@ const hudToggle = document.getElementById('hud-toggle');
 const headerHud = document.getElementById('header-hud');
 const clockTime = document.getElementById('clock-time');
 const clockDate = document.getElementById('clock-date');
+const fontToggle = document.getElementById('font-toggle');
 
 const WORDS_PER_MINUTE = 200;
 const MIN_READ_MINUTES = 1;
@@ -192,6 +193,14 @@ input.addEventListener('input', () => {
   updateStats();
   schedule();
 });
+
+if (fontToggle) {
+  fontToggle.addEventListener('click', () => {
+    const isMono = output.classList.toggle('mono');
+    fontToggle.textContent = isMono ? 'Mono' : 'Serif';
+    fontToggle.setAttribute('aria-pressed', String(isMono));
+  });
+}
 
 input.value = SAMPLE;
 updateStats();

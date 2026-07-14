@@ -183,7 +183,7 @@ test('overlapping requests apply in order so the preview never shows a stale res
   bootApp(dom, fetchMock);
 
   const input = doc.getElementById('input');
-  const output = doc.getElementById('output');
+  const outputEl = doc.getElementById('output');
   const statusEl = doc.getElementById('status');
 
   await new Promise((r) => setTimeout(r, 200));
@@ -203,7 +203,7 @@ test('overlapping requests apply in order so the preview never shows a stale res
   );
   await new Promise((r) => setTimeout(r, 200));
 
-  assert.equal(output.innerHTML, '<p>second</p>', 'preview must show second result');
+  assert.equal(outputEl.innerHTML, '<p>second</p>', 'preview must show second result');
   assert.equal(callCount, 2, 'must have called fetch twice');
   assert.notEqual(statusEl.textContent, 'error');
 });
@@ -264,7 +264,6 @@ test('all four readouts update live as the user edits the document', async () =>
   assert.notEqual(lineEl.textContent, before.lines, 'line count must update');
   assert.equal(wordEl.textContent, '5', 'word count must reflect the new text');
 
-  // a longer edit must move the read time off the sample's value
   input.value = Array.from({ length: 250 }, () => 'word').join(' ');
   input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
   assert.notEqual(readEl.textContent, before.read, 'read time must update');
@@ -317,14 +316,12 @@ test('read time is derived from word count and is at least the minimum for any n
   const WPM = 200;
   const MIN = 1;
 
-  // a short non-empty document: derived read time is below the minimum, so the floor applies
   input.value = 'only a few words here';
   input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
   const wordsShort = Number(wordEl.textContent);
   assert.equal(readEl.textContent, `${MIN} min read`, 'short doc clamps to the minimum read time');
   assert.ok(wordsShort > 0, 'non-empty doc has words');
 
-  // a long document: read time grows with the word count (ceil(words / WPM))
   const longText = Array.from({ length: 500 }, () => 'word').join(' ');
   input.value = longText;
   input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
@@ -333,6 +330,85 @@ test('read time is derived from word count and is at least the minimum for any n
   assert.equal(wordsLong, 500, 'word count for the long document');
   assert.equal(readEl.textContent, `${expectedLong} min read`, 'read time tracks the word count');
   assert.ok(Number(expectedLong) >= MIN, 'read time is never below the minimum');
+});
+
+test('a control in the preview header switches the preview body font between serif and monospace', () => {
+  const dom = buildDOM();
+  const doc = dom.window.document;
+  const fetchMock = async () =>
+    new Response(JSON.stringify({ html: '<p>ok</p>' }), {
+      headers: { 'content-type': 'application/json' },
+    });
+  bootApp(dom, fetchMock);
+
+  const outputEl = doc.getElementById('output');
+  const toggle = doc.getElementById('font-toggle');
+
+  assert.ok(toggle, 'font-toggle control must exist in the preview header');
+  assert.ok(!outputEl.classList.contains('mono'), 'default state must be serif (no mono class)');
+
+  toggle.click();
+  assert.ok(outputEl.classList.contains('mono'), 'output must get mono class after first click');
+
+  toggle.click();
+  assert.ok(!outputEl.classList.contains('mono'), 'output must lose mono class after second click');
+});
+
+test('the control label reflects the currently active font', () => {
+  const dom = buildDOM();
+  const doc = dom.window.document;
+  const fetchMock = async () =>
+    new Response(JSON.stringify({ html: '<p>ok</p>' }), {
+      headers: { 'content-type': 'application/json' },
+    });
+  bootApp(dom, fetchMock);
+
+  const toggle = doc.getElementById('font-toggle');
+
+  assert.equal(toggle.textContent, 'Serif', 'default label must be Serif');
+
+  toggle.click();
+  assert.equal(toggle.textContent, 'Mono', 'label must show Mono after toggle');
+
+  toggle.click();
+  assert.equal(toggle.textContent, 'Serif', 'label must show Serif after second toggle');
+});
+
+test('toggling restyles only the preview content; the editor and app chrome fonts are unchanged', () => {
+  const dom = buildDOM();
+  const doc = dom.window.document;
+  const fetchMock = async () =>
+    new Response(JSON.stringify({ html: '<p>ok</p>' }), {
+      headers: { 'content-type': 'application/json' },
+    });
+  bootApp(dom, fetchMock);
+
+  const toggle = doc.getElementById('font-toggle');
+  const editorTextarea = doc.getElementById('input');
+
+  const editorFontBefore = dom.window.getComputedStyle(editorTextarea).fontFamily;
+
+  toggle.click();
+
+  const editorFontAfter = dom.window.getComputedStyle(editorTextarea).fontFamily;
+  assert.equal(editorFontAfter, editorFontBefore, 'editor font must not change on toggle');
+});
+
+test('on first load, before any toggle, the preview shows the default font rather than an unstyled fallback', () => {
+  const dom = buildDOM();
+  const doc = dom.window.document;
+  const fetchMock = async () =>
+    new Response(JSON.stringify({ html: '<p>ok</p>' }), {
+      headers: { 'content-type': 'application/json' },
+    });
+  bootApp(dom, fetchMock);
+
+  const outputEl = doc.getElementById('output');
+  const fontFamily = dom.window.getComputedStyle(outputEl).fontFamily;
+
+  assert.ok(!outputEl.classList.contains('mono'), 'no mono class on first load');
+  assert.ok(fontFamily && fontFamily !== '', 'computed font-family must not be empty on first load');
+  assert.ok(!/monospace/i.test(fontFamily), 'default font must not be monospace on first load');
 });
 
 test('issue 17 header shows a live HH:MM clock and current date, advancing over time without reload', () => {
