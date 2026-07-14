@@ -9,7 +9,25 @@
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <p class="chrome-label">Markdown E-Ink Console</p>
+        <div class="topbar-head">
+          <p class="chrome-label">Markdown E-Ink Console</p>
+          <div class="header-hud-slot">
+            <button
+              id="hud-toggle"
+              class="hud-toggle"
+              type="button"
+              aria-controls="header-hud"
+              aria-expanded="true"
+              aria-pressed="true"
+            >
+              Hide clock
+            </button>
+            <div id="header-hud" class="header-hud">
+              <strong id="clock-time" class="hud-time">00:00</strong>
+              <span id="clock-date" class="hud-date">01 Jan 1970</span>
+            </div>
+          </div>
+        </div>
         <div class="brand">
           <span class="logo" aria-hidden="true">▣</span>
           <div class="brand-copy">
