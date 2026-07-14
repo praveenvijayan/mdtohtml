@@ -222,6 +222,42 @@ body {
   color: var(--paper);
 }
 
+.status[data-state="drawing"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.flash-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+}
+
+.ink-fill-track {
+  position: relative;
+  width: 4.5rem;
+  height: 0.55rem;
+  border: 2px solid var(--ink);
+  background: var(--paper-deep);
+  overflow: hidden;
+}
+
+.ink-fill-bar {
+  display: block;
+  height: 100%;
+  width: 0%;
+  max-width: 100%;
+  background: var(--ink);
+}
+
+#output.flash-invert {
+  filter: invert(1);
+}
+
 .font-toggle {
   padding: 0.2rem 0.55rem;
   border: 2px solid var(--ink);

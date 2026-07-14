@@ -332,6 +332,114 @@ test('read time is derived from word count and is at least the minimum for any n
   assert.ok(Number(expectedLong) >= MIN, 'read time is never below the minimum');
 });
 
+test('on each edit the preview briefly flashes and the status readout reads DRAW during the flash, returning to READY after', async () => {
+  const dom = buildDOM();
+  const doc = dom.window.document;
+  const fetchMock = async () =>
+    new Response(JSON.stringify({ html: '<p>ok</p>' }), {
+      headers: { 'content-type': 'application/json' },
+    });
+  bootApp(dom, fetchMock);
+  await new Promise((r) => setTimeout(r, 50));
+
+  const input = doc.getElementById('input');
+  const output = doc.getElementById('output');
+  const activity = doc.getElementById('activity');
+
+  input.value = 'edit one';
+  input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+
+  assert.equal(activity.textContent, 'DRAW', 'activity reads DRAW during the flash');
+  assert.ok(output.classList.contains('flash-invert'), 'preview inverts during the flash');
+
+  await new Promise((r) => setTimeout(r, 300));
+
+  assert.equal(activity.textContent, 'READY', 'activity settles back to READY');
+  assert.ok(!output.classList.contains('flash-invert'), 'preview settles back');
+});
+
+test('the flash is time-bounded and rapid consecutive keystrokes never leave the preview stuck inverted or the status stuck on DRAW', async () => {
+  const dom = buildDOM();
+  const doc = dom.window.document;
+  const fetchMock = async () =>
+    new Response(JSON.stringify({ html: '<p>ok</p>' }), {
+      headers: { 'content-type': 'application/json' },
+    });
+  bootApp(dom, fetchMock);
+  await new Promise((r) => setTimeout(r, 50));
+
+  const input = doc.getElementById('input');
+  const output = doc.getElementById('output');
+  const activity = doc.getElementById('activity');
+
+  for (const v of ['a', 'ab', 'abc', 'abcd', 'abcde']) {
+    input.value = v;
+    input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 20));
+  }
+
+  await new Promise((r) => setTimeout(r, 300));
+
+  assert.equal(activity.textContent, 'READY', 'status settles, never stuck on DRAW');
+  assert.ok(!output.classList.contains('flash-invert'), 'preview never stuck inverted');
+});
+
+test('a refresh-flash toggle disables the effect; when off, edits update the preview and status with no flash', async () => {
+  const dom = buildDOM();
+  const doc = dom.window.document;
+  const fetchMock = async () =>
+    new Response(JSON.stringify({ html: '<p>ok</p>' }), {
+      headers: { 'content-type': 'application/json' },
+    });
+  bootApp(dom, fetchMock);
+  await new Promise((r) => setTimeout(r, 50));
+
+  const input = doc.getElementById('input');
+  const output = doc.getElementById('output');
+  const activity = doc.getElementById('activity');
+  const flashToggle = doc.getElementById('flash-toggle');
+
+  flashToggle.checked = false;
+  input.value = 'toggle off edit';
+  input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+
+  assert.ok(!output.classList.contains('flash-invert'), 'no invert flash when toggle is off');
+
+  await new Promise((r) => setTimeout(r, 300));
+
+  assert.equal(activity.textContent, 'READY', 'status still settles to READY with no flash');
+});
+
+test('the header ink-fill bar grows with document length and stays within its track', async () => {
+  const dom = buildDOM();
+  const doc = dom.window.document;
+  const fetchMock = async () =>
+    new Response(JSON.stringify({ html: '<p>ok</p>' }), {
+      headers: { 'content-type': 'application/json' },
+    });
+  bootApp(dom, fetchMock);
+  await new Promise((r) => setTimeout(r, 50));
+
+  const input = doc.getElementById('input');
+  const inkFill = doc.getElementById('ink-fill');
+
+  input.value = 'short';
+  input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  const shortWidth = parseFloat(inkFill.style.width);
+
+  input.value = 'x'.repeat(500);
+  input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  const longerWidth = parseFloat(inkFill.style.width);
+
+  assert.ok(longerWidth > shortWidth, 'ink fill grows with document length');
+
+  input.value = 'x'.repeat(50000);
+  input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  const maxWidth = parseFloat(inkFill.style.width);
+
+  assert.ok(maxWidth <= 100, 'ink fill never overflows past 100%');
+});
+
 test('a control in the preview header switches the preview body font between serif and monospace', () => {
   const dom = buildDOM();
   const doc = dom.window.document;

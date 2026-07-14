@@ -1,6 +1,9 @@
 const input = document.getElementById('input');
 const output = document.getElementById('output');
 const status = document.getElementById('status');
+const activity = document.getElementById('activity');
+const flashToggle = document.getElementById('flash-toggle');
+const inkFill = document.getElementById('ink-fill');
 const charCount = document.getElementById('char-count');
 const wordCount = document.getElementById('word-count');
 const lineCount = document.getElementById('line-count');
@@ -14,6 +17,8 @@ const fontToggle = document.getElementById('font-toggle');
 
 const WORDS_PER_MINUTE = 200;
 const MIN_READ_MINUTES = 1;
+const FLASH_MS = 160;
+const INK_FILL_MAX_CHARS = 3000;
 const RENDER_DEBOUNCE_MS = 150;
 const CLOCK_REFRESH_MS = 1000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -170,6 +175,22 @@ function schedule() {
   renderTimer = setTimeout(render, RENDER_DEBOUNCE_MS);
 }
 
+let flashTimer = null;
+
+function triggerFlash() {
+  activity.textContent = 'DRAW';
+  activity.dataset.state = 'drawing';
+  if (flashToggle.checked) {
+    output.classList.add('flash-invert');
+  }
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => {
+    activity.textContent = 'READY';
+    activity.dataset.state = 'ready';
+    output.classList.remove('flash-invert');
+  }, FLASH_MS);
+}
+
 function computeStats(text) {
   const chars = text.length;
   const words = text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
@@ -187,10 +208,12 @@ function updateStats() {
   wordCount.textContent = String(words);
   lineCount.textContent = String(lines);
   readTime.textContent = `${minutes} min read`;
+  inkFill.style.width = `${Math.min(100, (chars / INK_FILL_MAX_CHARS) * 100)}%`;
 }
 
 input.addEventListener('input', () => {
   updateStats();
+  triggerFlash();
   schedule();
 });
 
