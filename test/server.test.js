@@ -20,6 +20,14 @@ async function withApp(fn) {
   }
 }
 
+async function postJson(base, pathname, payload) {
+  return fetch(`${base}${pathname}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
 // Spawns the real `node server.js` entrypoint (the only place the PORT/3000
 // default is applied) and polls until it accepts connections or times out.
 async function withSpawnedServer(env, fn) {
@@ -92,5 +100,88 @@ test('a request to an unknown path returns 404 without leaking a stack trace', a
     const body = await res.text();
     assert.doesNotMatch(body, /at [\w$.]+ \(/); // no "at Function (file:line:col)" stack frames
     assert.doesNotMatch(body, new RegExp(__dirname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  });
+});
+
+test('POST /api/render with a JSON body {markdown} returns {html} with headings, lists, links, and tables converted', async () => {
+  await withApp(async (base) => {
+    const markdown = [
+      '# Title',
+      '',
+      '- first',
+      '- second',
+      '',
+      '[OpenAI](https://openai.com)',
+      '',
+      '| Name | Value |',
+      '| --- | --- |',
+      '| one | two |',
+    ].join('\n');
+
+    const res = await postJson(base, '/api/render', { markdown });
+    assert.equal(res.status, 200);
+
+    const body = await res.json();
+    assert.match(body.html, /<h1[^>]*>Title<\/h1>/);
+    assert.match(body.html, /<ul>/);
+    assert.match(body.html, /<a href="https:\/\/openai\.com">OpenAI<\/a>/);
+    assert.match(body.html, /<table>/);
+  });
+});
+
+test('POST /api/render escapes raw HTML in the input so script tags are not executed', async () => {
+  await withApp(async (base) => {
+    const res = await postJson(base, '/api/render', {
+      markdown: '<script>alert(1)</script>',
+    });
+    assert.equal(res.status, 200);
+
+    const body = await res.json();
+    assert.match(body.html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+    assert.doesNotMatch(body.html, /<script>/);
+  });
+});
+
+test('POST /api/render returns {html:""} with status 200 when markdown is missing or not a string', async () => {
+  await withApp(async (base) => {
+    const missing = await postJson(base, '/api/render', {});
+    assert.equal(missing.status, 200);
+    assert.deepEqual(await missing.json(), { html: '' });
+
+    const nonString = await postJson(base, '/api/render', { markdown: 42 });
+    assert.equal(nonString.status, 200);
+    assert.deepEqual(await nonString.json(), { html: '' });
+  });
+});
+
+test('POST /api/render returns a JSON error with status 413 when the request body exceeds the configured size limit', async () => {
+  await withApp(async (base) => {
+    const markdown = 'a'.repeat(2 * 1024 * 1024 + 1);
+    const res = await postJson(base, '/api/render', { markdown });
+    assert.equal(res.status, 413);
+    assert.match(res.headers.get('content-type'), /application\/json/);
+
+    const body = await res.json();
+    assert.match(body.error, /exceeds the 2mb json limit/i);
+    assert.doesNotMatch(body.error, /PayloadTooLargeError|node_modules|raw-body|at /);
+  });
+});
+
+test('POST /api/render renders Markdown tables and blockquotes as block-level HTML', async () => {
+  await withApp(async (base) => {
+    const markdown = [
+      '> quoted text',
+      '',
+      '| Name | Value |',
+      '| --- | --- |',
+      '| one | two |',
+    ].join('\n');
+
+    const res = await postJson(base, '/api/render', { markdown });
+    assert.equal(res.status, 200);
+
+    const body = await res.json();
+    assert.match(body.html, /<blockquote>\s*<p>quoted text<\/p>\s*<\/blockquote>/);
+    assert.match(body.html, /<table>/);
   });
 });
