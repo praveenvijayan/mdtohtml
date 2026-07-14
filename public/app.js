@@ -9,29 +9,32 @@ const readTime = document.getElementById('read-time');
 const WORDS_PER_MINUTE = 200;
 const MIN_READ_MINUTES = 1;
 
-const SAMPLE = `# Hello, Markdown
+const SAMPLE = `# Field Notes
 
-Type on the left — this page updates live.
+Draft in the left bay. The preview plate restamps the page in place.
 
-## Features
+---
+
+## Apparatus
 
 - **Bold**, _italic_, and \`inline code\`
-- [Links](https://example.com) get linkified: https://claude.com
-- Lists, tables, blockquotes, and fenced code
+- [Links](https://example.com) stay readable on the paper stock
+- Tables, blockquotes, and fenced code keep their chrome
 
-> Markdown in. Beautiful page out.
+> Markdown in, paper preview out.
 
 \`\`\`js
-function greet(name) {
-  return \`Hello, \${name}!\`;
+function stamp(label) {
+  return \`[ink] \${label}\`;
 }
-console.log(greet('world'));
+
+console.log(stamp('ready'));
 \`\`\`
 
-| Syntax | Support |
-| ------ | :-----: |
-| Tables | ✅ |
-| Code   | ✅ |
+| Surface | Finish |
+| ------- | ------ |
+| Header  | etched |
+| Preview | inked  |
 `;
 
 let timer = null;
@@ -44,7 +47,8 @@ async function render() {
     return;
   }
   inflight = true;
-  status.textContent = 'rendering…';
+  status.textContent = 'rendering';
+  status.dataset.state = 'rendering';
   try {
     const res = await fetch('/api/render', {
       method: 'POST',
@@ -55,8 +59,10 @@ async function render() {
     const { html } = await res.json();
     output.innerHTML = html;
     status.textContent = 'ready';
+    status.dataset.state = 'ready';
   } catch (err) {
     status.textContent = 'error';
+    status.dataset.state = 'error';
     console.error(err);
   } finally {
     inflight = false;

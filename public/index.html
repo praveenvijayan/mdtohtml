@@ -5,43 +5,59 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Markdown → Web Page</title>
     <link rel="stylesheet" href="/style.css" />
-    <link rel="stylesheet" href="/vendor/hljs/github.css" />
   </head>
   <body>
-    <header class="topbar">
-      <div class="brand">
-        <span class="logo">◆</span>
-        <h1>Markdown&nbsp;→&nbsp;Web&nbsp;Page</h1>
-      </div>
-      <p class="tagline">Paste Markdown on the left. Watch it become a page on the right.</p>
-    </header>
-
-    <main class="split">
-      <section class="pane editor-pane">
-        <div class="pane-head">
-          <span class="pane-label">Markdown</span>
-          <span id="char-count" class="stat" aria-label="character count">0 chars</span>
-          <span id="status" class="status">ready</span>
+    <div class="app-shell">
+      <header class="topbar">
+        <p class="chrome-label">Markdown E-Ink Console</p>
+        <div class="brand">
+          <span class="logo" aria-hidden="true">▣</span>
+          <div class="brand-copy">
+            <h1>Markdown → Paper Preview</h1>
+            <p class="tagline">Draft on the platen, inspect the page before the ink dries.</p>
+          </div>
         </div>
-        <textarea
-          id="input"
-          spellcheck="false"
-          autocomplete="off"
-          aria-label="Markdown input"
-        ></textarea>
-      </section>
+      </header>
 
-      <section class="pane preview-pane">
-        <div class="pane-head"><span>Preview</span></div>
-        <article id="output" class="markdown-body"></article>
-      </section>
-    </main>
+      <main class="split">
+        <section class="pane editor-pane">
+          <div class="pane-head">
+            <span class="pane-title pane-label">Input Deck</span>
+            <span id="char-count" class="stat">0 chars</span>
+            <span id="status" class="status" data-state="ready">ready</span>
+          </div>
+          <textarea
+            id="input"
+            spellcheck="false"
+            autocomplete="off"
+            aria-label="Markdown input"
+          ></textarea>
+        </section>
 
-    <footer class="hud" aria-label="document statistics">
-      <span class="stat"><span id="word-count">0</span> words</span>
-      <span class="stat"><span id="line-count">1</span> lines</span>
-      <span class="stat" id="read-time">1 min read</span>
-    </footer>
+        <section class="pane preview-pane">
+          <div class="pane-head">
+            <span class="pane-title pane-label">Output Plate</span>
+            <span class="pane-meta">live render</span>
+          </div>
+          <article id="output" class="markdown-body" aria-live="polite"></article>
+        </section>
+      </main>
+
+      <footer class="footerbar">
+        <span class="footer-chip">
+          <span class="footer-label">Words</span>
+          <strong id="word-count" class="stat">0</strong>
+        </span>
+        <span class="footer-chip">
+          <span class="footer-label">Lines</span>
+          <strong id="line-count" class="stat">1</strong>
+        </span>
+        <span class="footer-chip">
+          <span class="footer-label">Read time</span>
+          <strong id="read-time" class="stat">1 min read</strong>
+        </span>
+      </footer>
+    </div>
 
     <script src="/app.js"></script>
   </body>
