@@ -58,7 +58,7 @@ body {
 .chrome-label,
 .pane-title,
 .pane-meta,
-.footer-chip,
+.footer-label,
 .status {
   font-family: var(--font-mono);
   font-size: 0.74rem;
@@ -123,12 +123,26 @@ body {
 
 .pane-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 0.9rem 1rem;
   border-bottom: 4px solid var(--ink);
   background: linear-gradient(180deg, var(--paper), var(--paper-dark));
+}
+
+.pane-label {
+  margin-right: auto;
+}
+
+.stat {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .status {
@@ -333,11 +347,11 @@ body {
 .footer-chip {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  gap: 0.65rem;
   min-width: 0;
   padding: 0.55rem 0.65rem;
   border: 2px solid var(--ink);
-  text-align: center;
 }
 
 @media (max-width: 780px) {

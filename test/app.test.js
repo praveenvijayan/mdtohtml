@@ -142,3 +142,130 @@ test('overlapping requests apply in order so the preview never shows a stale res
   assert.equal(callCount, 2, 'must have called fetch twice');
   assert.notEqual(statusEl.textContent, 'error');
 });
+
+test('editor header shows a character count and the footer shows word, line, and read-time readouts', async () => {
+  const dom = buildDOM();
+  const doc = dom.window.document;
+  const fetchMock = async () =>
+    new Response(JSON.stringify({ html: '<p>ok</p>' }), {
+      headers: { 'content-type': 'application/json' },
+    });
+  bootApp(dom, fetchMock);
+  await new Promise((r) => setTimeout(r, 50));
+
+  const charEl = doc.getElementById('char-count');
+  const wordEl = doc.getElementById('word-count');
+  const lineEl = doc.getElementById('line-count');
+  const readEl = doc.getElementById('read-time');
+  assert.ok(charEl, '#char-count must exist in the editor header');
+  assert.ok(wordEl, '#word-count must exist in the footer');
+  assert.ok(lineEl, '#line-count must exist in the footer');
+  assert.ok(readEl, '#read-time must exist in the footer');
+
+  for (const el of [charEl, wordEl, lineEl, readEl]) {
+    assert.ok(el.textContent.trim() !== '', 'readout must not be blank');
+    assert.ok(!/NaN/i.test(el.textContent), 'readout must not be NaN');
+  }
+});
+
+test('all four readouts update live as the user edits the document', async () => {
+  const dom = buildDOM();
+  const doc = dom.window.document;
+  const fetchMock = async () =>
+    new Response(JSON.stringify({ html: '<p>ok</p>' }), {
+      headers: { 'content-type': 'application/json' },
+    });
+  bootApp(dom, fetchMock);
+  await new Promise((r) => setTimeout(r, 50));
+
+  const input = doc.getElementById('input');
+  const charEl = doc.getElementById('char-count');
+  const wordEl = doc.getElementById('word-count');
+  const lineEl = doc.getElementById('line-count');
+  const readEl = doc.getElementById('read-time');
+
+  const before = {
+    chars: charEl.textContent,
+    words: wordEl.textContent,
+    lines: lineEl.textContent,
+    read: readEl.textContent,
+  };
+
+  input.value = 'one two three four five';
+  input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+
+  assert.notEqual(charEl.textContent, before.chars, 'char count must update');
+  assert.notEqual(wordEl.textContent, before.words, 'word count must update');
+  assert.notEqual(lineEl.textContent, before.lines, 'line count must update');
+  assert.equal(wordEl.textContent, '5', 'word count must reflect the new text');
+
+  // a longer edit must move the read time off the sample's value
+  input.value = Array.from({ length: 250 }, () => 'word').join(' ');
+  input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  assert.notEqual(readEl.textContent, before.read, 'read time must update');
+  assert.equal(readEl.textContent, '2 min read', 'read time reflects the longer document');
+});
+
+test('an empty document shows 0 chars, 0 words, 1 line, and the minimum read time — never blank or NaN', async () => {
+  const dom = buildDOM();
+  const doc = dom.window.document;
+  const fetchMock = async () =>
+    new Response(JSON.stringify({ html: '' }), {
+      headers: { 'content-type': 'application/json' },
+    });
+  bootApp(dom, fetchMock);
+  await new Promise((r) => setTimeout(r, 50));
+
+  const input = doc.getElementById('input');
+  input.value = '';
+  input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+
+  const charEl = doc.getElementById('char-count');
+  const wordEl = doc.getElementById('word-count');
+  const lineEl = doc.getElementById('line-count');
+  const readEl = doc.getElementById('read-time');
+
+  assert.equal(charEl.textContent, '0 chars', 'empty doc → 0 characters');
+  assert.equal(wordEl.textContent, '0', 'empty doc → 0 words');
+  assert.equal(lineEl.textContent, '1', 'empty doc → 1 line');
+  assert.equal(readEl.textContent, '1 min read', 'empty doc → minimum read time');
+  for (const el of [charEl, wordEl, lineEl, readEl]) {
+    assert.ok(el.textContent.trim() !== '', 'never blank');
+    assert.ok(!/NaN/i.test(el.textContent), 'never NaN');
+  }
+});
+
+test('read time is derived from word count and is at least the minimum for any non-empty document', async () => {
+  const dom = buildDOM();
+  const doc = dom.window.document;
+  const fetchMock = async () =>
+    new Response(JSON.stringify({ html: '' }), {
+      headers: { 'content-type': 'application/json' },
+    });
+  bootApp(dom, fetchMock);
+  await new Promise((r) => setTimeout(r, 50));
+
+  const input = doc.getElementById('input');
+  const readEl = doc.getElementById('read-time');
+  const wordEl = doc.getElementById('word-count');
+
+  const WPM = 200;
+  const MIN = 1;
+
+  // a short non-empty document: derived read time is below the minimum, so the floor applies
+  input.value = 'only a few words here';
+  input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  const wordsShort = Number(wordEl.textContent);
+  assert.equal(readEl.textContent, `${MIN} min read`, 'short doc clamps to the minimum read time');
+  assert.ok(wordsShort > 0, 'non-empty doc has words');
+
+  // a long document: read time grows with the word count (ceil(words / WPM))
+  const longText = Array.from({ length: 500 }, () => 'word').join(' ');
+  input.value = longText;
+  input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  const wordsLong = Number(wordEl.textContent);
+  const expectedLong = Math.max(MIN, Math.ceil(wordsLong / WPM));
+  assert.equal(wordsLong, 500, 'word count for the long document');
+  assert.equal(readEl.textContent, `${expectedLong} min read`, 'read time tracks the word count');
+  assert.ok(Number(expectedLong) >= MIN, 'read time is never below the minimum');
+});

@@ -22,7 +22,8 @@
       <main class="split">
         <section class="pane editor-pane">
           <div class="pane-head">
-            <span class="pane-title">Input Deck</span>
+            <span class="pane-title pane-label">Input Deck</span>
+            <span id="char-count" class="stat">0 chars</span>
             <span id="status" class="status" data-state="ready">ready</span>
           </div>
           <textarea
@@ -35,7 +36,7 @@
 
         <section class="pane preview-pane">
           <div class="pane-head">
-            <span class="pane-title">Output Plate</span>
+            <span class="pane-title pane-label">Output Plate</span>
             <span class="pane-meta">live render</span>
           </div>
           <article id="output" class="markdown-body" aria-live="polite"></article>
@@ -43,9 +44,18 @@
       </main>
 
       <footer class="footerbar">
-        <span class="footer-chip">local styles only</span>
-        <span class="footer-chip">system font fallback</span>
-        <span class="footer-chip">split-view instrument</span>
+        <span class="footer-chip">
+          <span class="footer-label">Words</span>
+          <strong id="word-count" class="stat">0</strong>
+        </span>
+        <span class="footer-chip">
+          <span class="footer-label">Lines</span>
+          <strong id="line-count" class="stat">1</strong>
+        </span>
+        <span class="footer-chip">
+          <span class="footer-label">Read time</span>
+          <strong id="read-time" class="stat">1 min read</strong>
+        </span>
       </footer>
     </div>
 
