@@ -305,3 +305,16 @@ test('issue 13 keeps all theme styling self-contained in app-served CSS and asse
     assert.doesNotMatch(css, /url\(["']?https?:\/\//);
   });
 });
+
+test('issue 17 when the HUD is hidden the header reflows without leaving an empty gap or overflow', async () => {
+  await withApp(async (base) => {
+    const res = await fetch(`${base}/style.css`);
+    assert.equal(res.status, 200);
+    const css = await res.text();
+
+    assert.match(css, /\.header-hud\[hidden\]\s*\{[\s\S]*display:\s*none/);
+    assert.match(css, /\.topbar-head\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-wrap:\s*wrap/);
+    assert.match(css, /\.header-hud-slot\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-wrap:\s*wrap;[\s\S]*justify-content:\s*flex-end/);
+    assert.match(css, /@media\s*\(max-width:\s*780px\)\s*\{[\s\S]*\.header-hud-slot\s*\{[\s\S]*width:\s*100%/);
+  });
+});
