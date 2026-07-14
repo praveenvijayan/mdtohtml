@@ -24,7 +24,15 @@
           <div class="pane-head">
             <span class="pane-title pane-label">Input Deck</span>
             <span id="char-count" class="stat">0 chars</span>
+            <span class="ink-fill-track" aria-hidden="true">
+              <span id="ink-fill" class="ink-fill-bar"></span>
+            </span>
             <span id="status" class="status" data-state="ready">ready</span>
+            <span id="activity" class="status" data-state="ready">READY</span>
+            <label class="flash-toggle">
+              <input type="checkbox" id="flash-toggle" checked />
+              flash
+            </label>
           </div>
           <textarea
             id="input"
