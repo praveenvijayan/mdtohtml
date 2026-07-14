@@ -5,6 +5,7 @@ const charCount = document.getElementById('char-count');
 const wordCount = document.getElementById('word-count');
 const lineCount = document.getElementById('line-count');
 const readTime = document.getElementById('read-time');
+const fontToggle = document.getElementById('font-toggle');
 
 const WORDS_PER_MINUTE = 200;
 const MIN_READ_MINUTES = 1;
@@ -104,3 +105,9 @@ input.addEventListener('input', () => {
 input.value = SAMPLE;
 updateStats();
 render();
+
+fontToggle.addEventListener('click', () => {
+  const isMono = output.classList.toggle('mono');
+  fontToggle.textContent = isMono ? 'Mono' : 'Serif';
+  fontToggle.setAttribute('aria-pressed', String(isMono));
+});

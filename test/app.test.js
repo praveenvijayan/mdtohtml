@@ -269,3 +269,82 @@ test('read time is derived from word count and is at least the minimum for any n
   assert.equal(readEl.textContent, `${expectedLong} min read`, 'read time tracks the word count');
   assert.ok(Number(expectedLong) >= MIN, 'read time is never below the minimum');
 });
+
+test('a control in the preview header switches the preview body font between serif and monospace', () => {
+  const dom = buildDOM();
+  const doc = dom.window.document;
+  const fetchMock = async () =>
+    new Response(JSON.stringify({ html: '<p>ok</p>' }), {
+      headers: { 'content-type': 'application/json' },
+    });
+  bootApp(dom, fetchMock);
+
+  const output = doc.getElementById('output');
+  const toggle = doc.getElementById('font-toggle');
+
+  assert.ok(toggle, 'font-toggle control must exist in the preview header');
+  assert.ok(!output.classList.contains('mono'), 'default state must be serif (no mono class)');
+
+  toggle.click();
+  assert.ok(output.classList.contains('mono'), 'output must get mono class after first click');
+
+  toggle.click();
+  assert.ok(!output.classList.contains('mono'), 'output must lose mono class after second click');
+});
+
+test('the control label reflects the currently active font', () => {
+  const dom = buildDOM();
+  const doc = dom.window.document;
+  const fetchMock = async () =>
+    new Response(JSON.stringify({ html: '<p>ok</p>' }), {
+      headers: { 'content-type': 'application/json' },
+    });
+  bootApp(dom, fetchMock);
+
+  const toggle = doc.getElementById('font-toggle');
+
+  assert.equal(toggle.textContent, 'Serif', 'default label must be Serif');
+
+  toggle.click();
+  assert.equal(toggle.textContent, 'Mono', 'label must show Mono after toggle');
+
+  toggle.click();
+  assert.equal(toggle.textContent, 'Serif', 'label must show Serif after second toggle');
+});
+
+test('toggling restyles only the preview content; the editor and app chrome fonts are unchanged', () => {
+  const dom = buildDOM();
+  const doc = dom.window.document;
+  const fetchMock = async () =>
+    new Response(JSON.stringify({ html: '<p>ok</p>' }), {
+      headers: { 'content-type': 'application/json' },
+    });
+  bootApp(dom, fetchMock);
+
+  const toggle = doc.getElementById('font-toggle');
+  const editorTextarea = doc.getElementById('input');
+
+  const editorFontBefore = dom.window.getComputedStyle(editorTextarea).fontFamily;
+
+  toggle.click();
+
+  const editorFontAfter = dom.window.getComputedStyle(editorTextarea).fontFamily;
+  assert.equal(editorFontAfter, editorFontBefore, 'editor font must not change on toggle');
+});
+
+test('on first load, before any toggle, the preview shows the default font rather than an unstyled fallback', () => {
+  const dom = buildDOM();
+  const doc = dom.window.document;
+  const fetchMock = async () =>
+    new Response(JSON.stringify({ html: '<p>ok</p>' }), {
+      headers: { 'content-type': 'application/json' },
+    });
+  bootApp(dom, fetchMock);
+
+  const output = doc.getElementById('output');
+  const fontFamily = dom.window.getComputedStyle(output).fontFamily;
+
+  assert.ok(!output.classList.contains('mono'), 'no mono class on first load');
+  assert.ok(fontFamily && fontFamily !== '', 'computed font-family must not be empty on first load');
+  assert.ok(!/monospace/i.test(fontFamily), 'default font must not be monospace on first load');
+});
