@@ -27,6 +27,17 @@ export const md = new MarkdownIt({
   },
 });
 
+// highlight.js themes style the code block via the `.hljs` class, but
+// markdown-it only emits `language-<lang>` on the <code> element. Add `hljs`
+// so the theme's block-level rules (background, padding, default colour)
+// apply to highlighted code blocks in the preview.
+const defaultFence = md.renderer.rules.fence;
+md.renderer.rules.fence = function fence(tokens, idx, options, env, self) {
+  const token = tokens[idx];
+  token.attrJoin('class', `hljs`);
+  return defaultFence.call(this, tokens, idx, options, env, self);
+};
+
 export function createApp() {
   const app = express();
   app.use(express.json({ limit: JSON_BODY_LIMIT }));

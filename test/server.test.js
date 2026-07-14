@@ -185,3 +185,57 @@ test('POST /api/render renders Markdown tables and blockquotes as block-level HT
     assert.match(body.html, /<table>/);
   });
 });
+
+test('a fenced code block with a known language renders with per-token highlight markup', async () => {
+  await withApp(async (base) => {
+    const markdown = ['```js', 'const x = 1;', '```'].join('\n');
+
+    const res = await postJson(base, '/api/render', { markdown });
+    assert.equal(res.status, 200);
+
+    const body = await res.json();
+    // highlight.js wraps tokens in <span class="hljs-keyword"> etc.; the code
+    // block carries the hljs language class so the theme can target it.
+    // The code block carries the hljs class (for the theme) plus the
+    // language class, and highlight.js wraps tokens in hljs-* spans.
+    assert.match(body.html, /<code class="hljs language-js">/);
+    assert.match(body.html, /<span class="hljs-keyword">const<\/span>/);
+  });
+});
+
+test('a fenced code block with an unknown or missing language renders as escaped plain code, with no error', async () => {
+  await withApp(async (base) => {
+    const unknown = await postJson(base, '/api/render', {
+      markdown: ['```totally-not-a-language', '<b>not html</b>', '```'].join('\n'),
+    });
+    assert.equal(unknown.status, 200);
+    const unknownBody = await unknown.json();
+    // No highlight spans; the angle brackets are escaped, not rendered.
+    assert.doesNotMatch(unknownBody.html, /<span class="hljs/);
+    assert.match(unknownBody.html, /&lt;b&gt;not html&lt;\/b&gt;/);
+
+    const missing = await postJson(base, '/api/render', {
+      markdown: ['```', '<i>still escaped</i>', '```'].join('\n'),
+    });
+    assert.equal(missing.status, 200);
+    const missingBody = await missing.json();
+    assert.doesNotMatch(missingBody.html, /<span class="hljs/);
+    assert.match(missingBody.html, /&lt;i&gt;still escaped&lt;\/i&gt;/);
+  });
+});
+
+test('a highlight theme stylesheet is served and applies to code blocks in the preview', async () => {
+  await withApp(async (base) => {
+    const theme = await fetch(`${base}/vendor/hljs/github.css`);
+    assert.equal(theme.status, 200);
+    assert.match(theme.headers.get('content-type'), /text\/css/);
+    const css = await theme.text();
+    // The theme rules target the hljs classes the highlighter emits.
+    assert.match(css, /\.hljs/);
+
+    const page = await fetch(`${base}/`);
+    const html = await page.text();
+    // The app shell links the theme stylesheet so highlighting is visible.
+    assert.match(html, /<link rel="stylesheet" href="\/vendor\/hljs\/github\.css"/);
+  });
+});
