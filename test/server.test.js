@@ -239,3 +239,57 @@ test('a highlight theme stylesheet is served and applies to code blocks in the p
     assert.match(html, /<link rel="stylesheet" href="\/vendor\/hljs\/github\.css"/);
   });
 });
+
+test('the preview applies distinct styling to headings, paragraphs, lists, blockquotes, tables, and inline code', async () => {
+  await withApp(async (base) => {
+    const res = await fetch(`${base}/style.css`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type'), /text\/css/);
+    const css = await res.text();
+    // Each element type gets its own rule under the preview's markdown-body scope.
+    assert.match(css, /\.markdown-body h1[\s\S]*?\{[^}]*font-size/);
+    assert.match(css, /\.markdown-body p[\s,][\s\S]*?\{[^}]*margin/);
+    assert.match(css, /\.markdown-body (ul|ol)[\s\S]*?\{[^}]*padding-left/);
+    assert.match(css, /\.markdown-body blockquote\s*\{[^}]*border-left/);
+    assert.match(css, /\.markdown-body table\s*\{[^}]*border-collapse/);
+    assert.match(css, /\.markdown-body code\s*\{[^}]*background/);
+  });
+});
+
+test('the content column is width-constrained and readable on a desktop viewport', async () => {
+  await withApp(async (base) => {
+    const res = await fetch(`${base}/style.css`);
+    const css = await res.text();
+    const rule = css.match(/\.markdown-body\s*\{([^}]*)\}/)[1];
+    assert.match(rule, /max-width:\s*780px/, 'content column caps its width for readable line length');
+    assert.match(rule, /margin:\s*0 auto/, 'content column centers within the wider preview pane');
+  });
+});
+
+test('on a narrow viewport (<780px) the editor and preview stack without horizontal overflow', async () => {
+  await withApp(async (base) => {
+    const res = await fetch(`${base}/style.css`);
+    const css = await res.text();
+    const query = css.match(/@media \(max-width:\s*780px\)\s*\{([\s\S]*)\}\s*$/);
+    assert.ok(query, 'a max-width: 780px breakpoint exists');
+    const body = query[1];
+    // Below the breakpoint the two-column grid collapses to a single column
+    // so the editor and preview stack instead of overflowing sideways.
+    assert.match(body, /\.split\s*\{[^}]*grid-template-columns:\s*1fr;/);
+    // box-sizing: border-box (applied globally) keeps padded panes within
+    // 100% width instead of adding to it and forcing horizontal scroll.
+    assert.match(css, /\*\s*\{[^}]*box-sizing:\s*border-box;/);
+  });
+});
+
+test('all preview styles are self-contained CSS with no external stylesheet CDN', async () => {
+  await withApp(async (base) => {
+    const page = await fetch(`${base}/`);
+    const html = await page.text();
+    const stylesheetLinks = [...html.matchAll(/<link rel="stylesheet" href="([^"]+)"/g)].map((m) => m[1]);
+    assert.ok(stylesheetLinks.length > 0, 'the app shell links at least one stylesheet');
+    for (const href of stylesheetLinks) {
+      assert.doesNotMatch(href, /^https?:\/\//, `${href} must be served by this app, not an external CDN`);
+    }
+  });
+});
